@@ -1,0 +1,34 @@
+[project]
+name = 'deepseek-ui'
+
+[tool.basedpyright]
+strict = ['deepseek_ui.py']
+typeCheckingMode = 'basic'
+
+[tool.pixi.project]
+channels = ['pytorch', 'nvidia', 'conda-forge']
+platforms = ['win-64']
+
+[tool.pixi.pypi-options]
+index-url = 'https://mirrors.cernet.edu.cn/pypi/web/simple'
+
+[tool.pixi.dependencies]
+ollama-python = '*'
+streamlit = '>=1.40.1'
+pytorch-cuda = '*'
+
+# Taken from https://github.com/deepseek-ai/Janus/blob/main/pyproject.toml
+python = '>=3.8.0'
+pytorch = '>=2.0.1'
+transformers = '>=4.38.2'
+timm = '>=0.9.16'
+accelerate = '*'
+sentencepiece = '*'
+attrdict = '*'
+einops = '*'
+
+[tool.pixi.pypi-dependencies]
+janus = { git = 'ssh://git@github.com/deepseek-ai/Janus' }
+
+[tool.pixi.tasks.start]
+cmd = 'streamlit run deepseek_ui.py'

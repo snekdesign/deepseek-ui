@@ -1,0 +1,14 @@
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = 'minimal'
+
+[server]
+address = '0.0.0.0'
+fileWatcherType = 'none'
+headless = true
+port = 11435
+
+[theme]
+base = 'light'

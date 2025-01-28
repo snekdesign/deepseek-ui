@@ -1,0 +1,3 @@
+[submodule "Janus-Pro-1B"]
+	path = data
+	url = https://hf-mirror.com/deepseek-ai/Janus-Pro-1B
