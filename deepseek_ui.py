@@ -192,11 +192,13 @@ if prompt := st.chat_input(
                 images=[ollama.Image(value=value) for value in visual_img],
             )
         else:
-            response = ollama.chat(model, messages)  # pyright: ignore[reportUnknownMemberType]
-            if not (response.done and response.model == model):
-                st.json(response.model_dump(mode='json'))
-                st.stop()
-            message = response.message
+            responses = ollama.chat(model, messages, stream=True)  # pyright: ignore[reportUnknownMemberType]
+            content = st.write_stream(
+                (r.message.content for r in responses),
+                unsafe_allow_html=True,
+            )
+            assert isinstance(content, str)
+            message = ollama.Message(role='assistant', content=content)
     messages.append(message)
     st.session_state.disabled = False
     st.rerun()
