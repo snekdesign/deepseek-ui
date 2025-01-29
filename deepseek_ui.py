@@ -12,6 +12,7 @@ import numpy as np
 import ollama
 import PIL.Image
 import streamlit as st
+import streamlit_scroll_to_top  # pyright: ignore[reportMissingTypeStubs]
 import torch
 from transformers import AutoModelForCausalLM  # pyright: ignore[reportMissingTypeStubs]
 from transformers.modeling_outputs import BaseModelOutputWithPast  # pyright: ignore[reportMissingTypeStubs]
@@ -120,7 +121,11 @@ def models():
 
 
 messages: list[ollama.Message] = st.session_state.setdefault('messages', [])
-for m in messages:
+n = len(messages)
+disabled = st.session_state.get('disabled', False)
+for i, m in enumerate(messages, 1):
+    if i == n and not disabled:
+        streamlit_scroll_to_top.scroll_to_here()
     with st.chat_message(m.role):
         if m.content:
             st.markdown(m.content, m.role == 'assistant')
@@ -128,7 +133,14 @@ for m in messages:
             st.image([image.value for image in m.images])
         else:
             assert False, 'unreachable'
-if prompt := st.chat_input('给 DeepSeek 发送消息'):
+
+# https://discuss.streamlit.io/t/disable-chat-input-while-chat-bot-is-responding/70507
+if prompt := st.chat_input(
+    '给 DeepSeek 发送消息',
+    disabled=disabled,
+    on_submit=lambda: setattr(st.session_state, 'disabled', True),
+):
+    streamlit_scroll_to_top.scroll_to_here()
     st.chat_message('user').markdown(prompt)
     messages.append(ollama.Message(role='user', content=prompt))
     with st.chat_message('assistant'):
@@ -142,8 +154,9 @@ if prompt := st.chat_input('给 DeepSeek 发送消息'):
             vl_chat_processor,
             prompt=sft_prompt+vl_chat_processor.image_start_tag,
         )
-        st.image(response)
     messages.append(ollama.Message(
         role='assistant',
         images=[ollama.Image(value=value) for value in response],
     ))
+    st.session_state.disabled = False
+    st.rerun()

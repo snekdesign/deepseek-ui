@@ -29,6 +29,7 @@ einops = '*'
 
 [tool.pixi.pypi-dependencies]
 janus = { git = 'ssh://git@github.com/deepseek-ai/Janus' }
+streamlit-scroll-to-top = '>=0.0.4'
 
 [tool.pixi.tasks.start]
 cmd = 'streamlit run deepseek_ui.py'
