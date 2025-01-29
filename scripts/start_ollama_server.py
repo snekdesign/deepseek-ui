@@ -48,7 +48,7 @@ async def _load_model():
         response.done and response.done_reason == 'load'
         and response.model == 'deepseek-r1:8b'
     ):
-        return
+        os._exit(0)
     raise RuntimeError(response)
 
 
@@ -70,26 +70,22 @@ def _main(sock: socket.socket):
 
 
 async def _server(ollama: str):
-    proc = await asyncio.create_subprocess_exec(
+    process = await asyncio.create_subprocess_exec(
         ollama, 'serve',
         creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
-    success = asyncio.create_task(_load_model())
-    failure = asyncio.create_task(proc.wait())
+    proc = asyncio.create_task(process.wait())
     done, pending = await asyncio.wait(
-        [success, failure],
+        [proc, asyncio.create_task(_load_model())],
         return_when=asyncio.FIRST_COMPLETED,
     )
     for task in pending:
         task.cancel()
-    if failure in done and failure.exception() is None:
+    if proc.done() and proc.exception() is None:
         raise subprocess.CalledProcessError(
-            returncode=failure.result(),
+            returncode=proc.result(),
             cmd=[ollama, 'serve'],
         )
-    if success in done and success.exception() is None:
-        proc._transport._closed = True  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
-        return
     for task in done:
         await task
     assert False, 'unreachable'
