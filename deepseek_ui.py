@@ -1,7 +1,7 @@
 import contextlib
 import io
 import logging
-from typing import cast
+from typing import List
 import warnings
 
 with contextlib.redirect_stdout(None), warnings.catch_warnings():
@@ -83,7 +83,7 @@ def generate(
         generated_tokens,
         shape=(parallel_size, 8, img_size//patch_size, img_size//patch_size),
     )
-    response: list[bytes] = []
+    response: List[bytes] = []
     for obj in np.asarray(
         dec.add_(1)
            .mul_(255/2)
@@ -114,13 +114,14 @@ def models():
         _MODEL_PATH,
         trust_remote_code=True,
     )
-    mmgpt = cast(torch.nn.Module, mmgpt).to(torch.bfloat16).cuda().eval()
+    assert isinstance(mmgpt, torch.nn.Module)
+    mmgpt = mmgpt.to(torch.bfloat16).cuda().eval()
     assert isinstance(mmgpt, MultiModalityCausalLM)
 
     return (mmgpt, vl_chat_processor)
 
 
-messages: list[ollama.Message] = st.session_state.setdefault('messages', [])
+messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
 n = len(messages)
 disabled = st.session_state.get('disabled', False)
 for i, m in enumerate(messages, 1):
