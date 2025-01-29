@@ -1,7 +1,7 @@
 # DeepSeek-UI
 ## Features
-- [x] Image generation (Janus-Pro-1B)
-- [ ] Chat (DeepSeek-R1-Distill-Llama-8B)
+- Image generation (Janus-Pro-1B)
+- Chat (DeepSeek-R1-Distill-Llama-8B)
 ## Requirements
 - NVIDIA GPU
 - Windows x86-64

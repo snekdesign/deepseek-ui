@@ -1,7 +1,9 @@
 import contextlib
 import io
 import logging
+from typing import cast
 from typing import List
+from typing import TYPE_CHECKING
 import warnings
 
 with contextlib.redirect_stdout(None), warnings.catch_warnings():
@@ -12,6 +14,8 @@ import numpy as np
 import ollama
 import PIL.Image
 import streamlit as st
+if TYPE_CHECKING:
+    from streamlit.runtime.caching.cache_utils import CachedFunc
 import streamlit_scroll_to_top  # pyright: ignore[reportMissingTypeStubs]
 import torch
 from transformers import AutoModelForCausalLM  # pyright: ignore[reportMissingTypeStubs]
@@ -83,7 +87,7 @@ def generate(
         generated_tokens,
         shape=(parallel_size, 8, img_size//patch_size, img_size//patch_size),
     )
-    response: List[bytes] = []
+    visual_img: List[bytes] = []
     for obj in np.asarray(
         dec.add_(1)
            .mul_(255/2)
@@ -94,11 +98,11 @@ def generate(
     ):
         with io.BytesIO() as f:
             PIL.Image.fromarray(obj).save(f, 'JPEG2000')
-            response.append(f.getvalue())
-    return response
+            visual_img.append(f.getvalue())
+    return visual_img
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def models():
     for name in (
         'transformers.models.auto.image_processing_auto',
@@ -121,9 +125,36 @@ def models():
     return (mmgpt, vl_chat_processor)
 
 
+if model := st.session_state.get('model', ''):
+    disabled = st.session_state.get('disabled', False)
+else:
+    disabled = True
+    with st.chat_message('assistant'):
+        st.markdown('选择一个模型:')
+        left, right = st.columns(2)
+        if left.button(
+            'DeepSeek R1 Distill Llama 8B (对话)',
+            type='primary',
+            use_container_width=True,
+        ):
+            st.session_state.model = 'deepseek-r1:8b'
+            cast('CachedFunc', models).clear()  # pyright: ignore[reportUnknownMemberType]
+            torch.cuda.empty_cache()
+            st.rerun()
+        if right.button('Janus Pro 1B (图像生成)', use_container_width=True):
+            st.session_state.model = 'janus-pro:1b'
+            # https://github.com/ollama/ollama/blob/main/docs/api.md#unload-a-model-1
+            response = ollama.chat('deepseek-r1:8b', messages=[], keep_alive=0)  # pyright: ignore[reportUnknownMemberType]
+            if not (
+                response.done and response.done_reason == 'unload'
+                and response.model == 'deepseek-r1:8b'
+            ):
+                st.json(response.model_dump(mode='json'))
+                st.stop()
+            st.rerun()
+
 messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
 n = len(messages)
-disabled = st.session_state.get('disabled', False)
 for i, m in enumerate(messages, 1):
     if i == n and not disabled:
         streamlit_scroll_to_top.scroll_to_here()
@@ -145,19 +176,27 @@ if prompt := st.chat_input(
     st.chat_message('user').markdown(prompt)
     messages.append(ollama.Message(role='user', content=prompt))
     with st.chat_message('assistant'):
-        mmgpt, vl_chat_processor = models()
-        sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
-            {'role': '<|User|>', 'content': prompt},
-            {'role': '<|Assistant|>', 'content': ''},
-        ])
-        response = generate(
-            mmgpt,
-            vl_chat_processor,
-            prompt=sft_prompt+vl_chat_processor.image_start_tag,
-        )
-    messages.append(ollama.Message(
-        role='assistant',
-        images=[ollama.Image(value=value) for value in response],
-    ))
+        if model == 'janus-pro:1b':
+            mmgpt, vl_chat_processor = models()
+            sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
+                {'role': '<|User|>', 'content': prompt},
+                {'role': '<|Assistant|>', 'content': ''},
+            ])
+            visual_img = generate(
+                mmgpt,
+                vl_chat_processor,
+                prompt=sft_prompt+vl_chat_processor.image_start_tag,
+            )
+            message = ollama.Message(
+                role='assistant',
+                images=[ollama.Image(value=value) for value in visual_img],
+            )
+        else:
+            response = ollama.chat(model, messages)  # pyright: ignore[reportUnknownMemberType]
+            if not (response.done and response.model == model):
+                st.json(response.model_dump(mode='json'))
+                st.stop()
+            message = response.message
+    messages.append(message)
     st.session_state.disabled = False
     st.rerun()

@@ -45,7 +45,7 @@ async def _load_model():
         except Exception:
             await asyncio.sleep(1)
     if (
-        response.done is True and response.done_reason == 'load'
+        response.done and response.done_reason == 'load'
         and response.model == 'deepseek-r1:8b'
     ):
         return

@@ -37,3 +37,4 @@ cmd = 'python scripts/start_ollama_server.py'
 
 [tool.pixi.tasks.start]
 cmd = 'streamlit run deepseek_ui.py'
+depends-on = ['setup']
