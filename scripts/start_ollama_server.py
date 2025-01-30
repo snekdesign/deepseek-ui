@@ -35,7 +35,7 @@ def _executable(files: List[str]):
     assert False, 'unreachable'
 
 
-async def _load_model():
+async def _load_model() -> int:
     # https://github.com/ollama/ollama/blob/main/docs/api.md#load-a-model-1
     client = ollama.AsyncClient()
     while True:
@@ -81,7 +81,7 @@ async def _server(ollama: str):
     )
     for task in pending:
         task.cancel()
-    if proc.done() and proc.exception() is None:
+    if proc in done and proc.exception() is None:
         raise subprocess.CalledProcessError(
             returncode=proc.result(),
             cmd=[ollama, 'serve'],
