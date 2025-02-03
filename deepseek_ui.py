@@ -1,6 +1,8 @@
+from collections.abc import Sequence
 import contextlib
 import io
 import logging
+import traceback
 from typing import cast
 from typing import List
 from typing import TYPE_CHECKING
@@ -9,6 +11,7 @@ import warnings
 with contextlib.redirect_stdout(None), warnings.catch_warnings():
     warnings.simplefilter('ignore', FutureWarning)
     from janus.models import MultiModalityCausalLM, VLChatProcessor  # pyright: ignore[reportMissingTypeStubs]
+from janus.models.processing_vlm import BatchedVLChatProcessorOutput  # pyright: ignore[reportMissingTypeStubs]
 from janus.models.vq_model import VQModel  # pyright: ignore[reportMissingTypeStubs]
 import numpy as np
 import ollama
@@ -125,6 +128,23 @@ def models():
     return (mmgpt, vl_chat_processor)
 
 
+def prepare_inputs(
+    images: Sequence[ollama.Image],
+) -> BatchedVLChatProcessorOutput:
+    value = images[0].value
+    assert isinstance(value, bytes)
+    with io.BytesIO(value) as f:
+        image = PIL.Image.open(f).convert('RGB')
+    return vl_chat_processor(
+        conversations=[
+            {'role': '<|User|>', 'content': f'<image_placeholder>\n{prompt}'},
+            {'role': '<|Assistant|>', 'content': ''},
+        ],
+        images=[image],
+    )
+
+
+messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
 if model := st.session_state.get('model', ''):
     disabled = st.session_state.get('disabled', False)
 else:
@@ -141,7 +161,24 @@ else:
             cast('CachedFunc', models).clear()  # pyright: ignore[reportUnknownMemberType]
             torch.cuda.empty_cache()
             st.rerun()
-        if right.button('Janus Pro 1B (图像生成)', use_container_width=True):
+        janus_pro = right.button(
+            'Janus Pro 1B (图像生成)',
+            use_container_width=True,
+        )
+        if uploaded_file := st.file_uploader('Janus Pro 1B (图像识别)'):
+            try:
+                with PIL.Image.open(uploaded_file):
+                    pass
+            except PIL.UnidentifiedImageError as e:
+                st.text(''.join(traceback.format_exception_only(e)))
+                st.stop()
+            message = ollama.Message(
+                role='user',
+                images=[ollama.Image(value=uploaded_file.getvalue())],
+            )
+            messages.append(message)
+            janus_pro = True
+        if janus_pro:
             st.session_state.model = 'janus-pro:1b'
             # https://github.com/ollama/ollama/blob/main/docs/api.md#unload-a-model-1
             response = ollama.chat('deepseek-r1:8b', messages=[], keep_alive=0)  # pyright: ignore[reportUnknownMemberType]
@@ -153,7 +190,6 @@ else:
                 st.stop()
             st.rerun()
 
-messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
 n = len(messages)
 for i, m in enumerate(messages, 1):
     if i == n and not disabled:
@@ -178,19 +214,36 @@ if prompt := st.chat_input(
     with st.chat_message('assistant'):
         if model == 'janus-pro:1b':
             mmgpt, vl_chat_processor = models()
-            sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
-                {'role': '<|User|>', 'content': prompt},
-                {'role': '<|Assistant|>', 'content': ''},
-            ])
-            visual_img = generate(
-                mmgpt,
-                vl_chat_processor,
-                prompt=sft_prompt+vl_chat_processor.image_start_tag,
-            )
-            message = ollama.Message(
-                role='assistant',
-                images=[ollama.Image(value=value) for value in visual_img],
-            )
+            if images := messages[0].images:
+                inputs = prepare_inputs(images).to(mmgpt.device)  # pyright: ignore[reportUnknownMemberType]
+                tokenizer = vl_chat_processor.tokenizer
+                outputs = mmgpt.language_model.generate(  # pyright: ignore[reportUnknownMemberType]
+                    inputs_embeds=mmgpt.prepare_inputs_embeds(**inputs),  # pyright: ignore[reportUnknownMemberType]
+                    attention_mask=inputs.attention_mask,
+                    pad_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    bos_token_id=tokenizer.bos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    eos_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    max_new_tokens=512,
+                    do_sample=False,
+                    use_cache=True,
+                )
+                assert isinstance(outputs, torch.Tensor)
+                content = tokenizer.decode(outputs[0], skip_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
+                message = ollama.Message(role='assistant', content=content)
+            else:
+                sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
+                    {'role': '<|User|>', 'content': prompt},
+                    {'role': '<|Assistant|>', 'content': ''},
+                ])
+                visual_img = generate(
+                    mmgpt,
+                    vl_chat_processor,
+                    prompt=sft_prompt+vl_chat_processor.image_start_tag,
+                )
+                message = ollama.Message(
+                    role='assistant',
+                    images=[ollama.Image(value=value) for value in visual_img],
+                )
         else:
             responses = ollama.chat(model, messages, stream=True)  # pyright: ignore[reportUnknownMemberType]
             content = st.write_stream(
