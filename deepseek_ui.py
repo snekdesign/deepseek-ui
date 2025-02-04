@@ -178,6 +178,10 @@ class Stream:
                 yield from it
         self._initial = None
 
+    def close(self):
+        if isinstance(self._responses, Generator):
+            self._responses.close()  # pyright: ignore[reportUnknownMemberType]
+
     def _iter(self) -> Generator[str, Any, None]:
         if self._initial is None:
             return
@@ -305,14 +309,28 @@ if prompt := st.chat_input(
         else:
             stream = Stream()
             if stream.thinking:
+                label = '已深度思考'
                 with st.status('思考中...', expanded=True) as status:
-                    if (
-                        (thoughts := st.write_stream(stream))
-                        and not cast(str, thoughts).isspace()
-                    ):
-                        label = f'已深度思考 (用时 {think[len(messages)+1]} 秒)'
-                    else:
-                        label = '已深度思考'
+                    with st.empty():
+                        while stream.thinking:
+                            if (
+                                (thoughts := st.write_stream(stream))
+                                and not cast(str, thoughts).isspace()
+                            ):
+                                try:
+                                    timing = think[len(messages)+1]
+                                except KeyError:
+                                    stream.close()
+                                    stream = Stream()
+                                else:
+                                    label += f' (用时 {timing} 秒)'
+                                    break
+                            else:
+                                st.markdown('')
+                                break
+                        else:
+                            st.markdown('')
+                            thoughts = []
                     status.update(label=label, expanded=False, state='complete')
             else:
                 thoughts = []
