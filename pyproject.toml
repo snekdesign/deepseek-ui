@@ -5,10 +5,9 @@ name = 'deepseek-ui'
 strict = ['deepseek_ui.py', 'scripts/start_ollama_server.py']
 typeCheckingMode = 'basic'
 
-[tool.pixi.workspace]
+[tool.pixi.project]
 channels = ['pytorch', 'nvidia', 'conda-forge']
 platforms = ['win-64']
-preview = ['pixi-build']
 
 [tool.pixi.pypi-options]
 index-url = 'https://mirrors.cernet.edu.cn/pypi/web/simple'
@@ -17,6 +16,7 @@ index-url = 'https://mirrors.cernet.edu.cn/pypi/web/simple'
 ollama-python = '*'
 pooch = '>=1.8.2'
 pytorch-cuda = '>=11.0.0,<13.0.0a0'
+streamlit = '>=1.40.1'
 
 # Taken from https://github.com/deepseek-ai/Janus/blob/main/pyproject.toml
 python = '>=3.8.0'
@@ -28,16 +28,9 @@ sentencepiece = '*'
 attrdict = '*'
 einops = '*'
 
-[tool.pixi.dependencies.streamlit]
-git = 'ssh://git@github.com/snekdesign/feedstocks'
-subdirectory = 'streamlit'
-
-[tool.pixi.dependencies.streamlit-scroll-to-top]
-git = 'ssh://git@github.com/snekdesign/feedstocks'
-subdirectory = 'streamlit-scroll-to-top'
-
-[tool.pixi.pypi-dependencies.janus]
-git = 'ssh://git@github.com/deepseek-ai/Janus'
+[tool.pixi.pypi-dependencies]
+janus = { git = 'ssh://git@github.com/deepseek-ai/Janus' }
+streamlit-scroll-to-top = '>=0.0.4'
 
 [tool.pixi.tasks.setup]
 cmd = 'python scripts/start_ollama_server.py'

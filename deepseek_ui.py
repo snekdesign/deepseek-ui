@@ -1,8 +1,11 @@
+from collections.abc import Generator
 from collections.abc import Sequence
 import contextlib
 import io
 import logging
+import time
 import traceback
+from typing import Any
 from typing import cast
 from typing import List
 from typing import TYPE_CHECKING
@@ -144,6 +147,46 @@ def prepare_inputs(
     )
 
 
+class Stream:
+    def __init__(self):
+        self.thinking = False
+        self._responses = responses = ollama.chat(model, messages, stream=True)  # pyright: ignore[reportUnknownMemberType]
+        self._tic = time.monotonic()
+        for r in responses:
+            if chunk := r.message.content:
+                if chunk.startswith('<think>'):
+                    self.thinking = True
+                    self._initial = chunk[7:]
+                else:
+                    self._initial = chunk
+                return
+        self._initial = None
+
+    def __iter__(self) -> Generator[str, Any, None]:
+        with contextlib.closing(self._iter()) as it:
+            if self.thinking:
+                for chunk in it:
+                    if '</think>' in chunk:
+                        toc = time.monotonic()
+                        think[len(messages) + 1] = round(toc - self._tic)
+                        self.thinking = False
+                        chunk, self._initial = chunk.split('</think>', 1)
+                        yield chunk
+                        return
+                    yield chunk
+            else:
+                yield from it
+        self._initial = None
+
+    def _iter(self) -> Generator[str, Any, None]:
+        if self._initial is None:
+            return
+        yield self._initial
+        for r in self._responses:
+            if chunk := r.message.content:
+                yield chunk
+
+
 messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
 if model := st.session_state.get('model', ''):
     disabled = st.session_state.get('disabled', False)
@@ -190,13 +233,24 @@ else:
                 st.stop()
             st.rerun()
 
+think: dict[int, int] = st.session_state.setdefault('think', {})
 n = len(messages)
 for i, m in enumerate(messages, 1):
     if i == n and not disabled:
         streamlit_scroll_to_top.scroll_to_here()
     with st.chat_message(m.role):
-        if m.content:
-            st.markdown(m.content, m.role == 'assistant')
+        if content := m.content:
+            if (
+                (unsafe_allow_html := m.role == 'assistant')
+                and content.startswith('<think>')
+                and (j := content.find('</think>')) > 7
+                and not (thoughts := content[7:j]).isspace()
+            ):
+                with st.expander(f'已深度思考 (用时 {think[i]} 秒)'):
+                    st.markdown(thoughts)
+                st.markdown(content[j+8 :])
+            else:
+                st.markdown(content, unsafe_allow_html)
         elif m.images:
             st.image([image.value for image in m.images])
         else:
@@ -245,12 +299,16 @@ if prompt := st.chat_input(
                     images=[ollama.Image(value=value) for value in visual_img],
                 )
         else:
-            responses = ollama.chat(model, messages, stream=True)  # pyright: ignore[reportUnknownMemberType]
-            content = st.write_stream(
-                (r.message.content for r in responses),
-                unsafe_allow_html=True,
-            )
+            stream = Stream()
+            if stream.thinking:
+                with st.expander('思考中...', expanded=True):
+                    thoughts = st.write_stream(stream)
+            else:
+                thoughts = []
+            content = st.write_stream(stream)
             assert isinstance(content, str)
+            if isinstance(thoughts, str):
+                content = f'<think>{thoughts}</think>{content}'
             message = ollama.Message(role='assistant', content=content)
     messages.append(message)
     st.session_state.disabled = False
