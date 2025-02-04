@@ -246,8 +246,12 @@ for i, m in enumerate(messages, 1):
                 and (j := content.find('</think>')) > 7
                 and not (thoughts := content[7:j]).isspace()
             ):
-                with st.expander(f'已深度思考 (用时 {think[i]} 秒)'):
+                with st.status('思考中...') as status:
                     st.markdown(thoughts)
+                    status.update(
+                        label=f'已深度思考 (用时 {think[i]} 秒)',
+                        state='complete',
+                    )
                 st.markdown(content[j+8 :])
             else:
                 st.markdown(content, unsafe_allow_html)
@@ -301,8 +305,15 @@ if prompt := st.chat_input(
         else:
             stream = Stream()
             if stream.thinking:
-                with st.expander('思考中...', expanded=True):
-                    thoughts = st.write_stream(stream)
+                with st.status('思考中...', expanded=True) as status:
+                    if (
+                        (thoughts := st.write_stream(stream))
+                        and not cast(str, thoughts).isspace()
+                    ):
+                        label = f'已深度思考 (用时 {think[len(messages)+1]} 秒)'
+                    else:
+                        label = '已深度思考'
+                    status.update(label=label, expanded=False, state='complete')
             else:
                 thoughts = []
             content = st.write_stream(stream)
