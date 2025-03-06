@@ -7,11 +7,9 @@
 - NVIDIA GPU
 - Windows x86-64
 - git-lfs
-- [pixi 0.40.2][1] (other versions not tested)
+- pixi >=0.42.0
 ## Usage
 Clone this repo along with submodules, and then run:
 ```sh
 pixi r start
 ```
-
-[1]: https://github.com/prefix-dev/pixi/releases/tag/v0.40.2
