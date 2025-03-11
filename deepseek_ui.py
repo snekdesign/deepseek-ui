@@ -4,7 +4,6 @@ import contextlib
 import io
 import logging
 import time
-import traceback
 from typing import Any
 from typing import cast
 from typing import List
@@ -45,7 +44,7 @@ def generate(
     patch_size: int = 16,
 ):
     tokens = torch.tensor(
-        vl_chat_processor.tokenizer.encode(prompt),  # pyright: ignore[reportUnknownMemberType]
+        vl_chat_processor.tokenizer.encode(prompt),  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
         dtype=torch.int,
         device='cuda',
     ).repeat(parallel_size*2, 1)
@@ -131,8 +130,15 @@ def models():
     return (mmgpt, vl_chat_processor)
 
 
+def on_submit():
+    # https://discuss.streamlit.io/t/disable-chat-input-while-chat-bot-is-responding/70507
+    st.session_state.disabled = True
+
+
 def prepare_inputs(
+    vl_chat_processor: VLChatProcessor,
     images: Sequence[ollama.Image],
+    prompt: str,
 ) -> BatchedVLChatProcessorOutput:
     value = images[0].value
     assert isinstance(value, bytes)
@@ -147,10 +153,82 @@ def prepare_inputs(
     )
 
 
+def response(prompt: str):
+    with st.chat_message('assistant'):
+        if st.session_state.model == 'janus-pro:1b':
+            mmgpt, vl_chat_processor = models()
+            if images := messages[0].images:
+                inputs = prepare_inputs(
+                    vl_chat_processor,
+                    images,
+                    prompt,
+                ).to(mmgpt.device)  # pyright: ignore[reportUnknownMemberType]
+                tokenizer = vl_chat_processor.tokenizer
+                outputs = mmgpt.language_model.generate(  # pyright: ignore[reportUnknownMemberType]
+                    inputs_embeds=mmgpt.prepare_inputs_embeds(**inputs),  # pyright: ignore[reportUnknownMemberType]
+                    attention_mask=inputs.attention_mask,
+                    pad_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    bos_token_id=tokenizer.bos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    eos_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
+                    max_new_tokens=512,
+                    do_sample=False,
+                    use_cache=True,
+                )
+                assert isinstance(outputs, torch.Tensor)
+                content = tokenizer.decode(outputs[0], skip_special_tokens=True)  # pyright: ignore[reportArgumentType, reportUnknownMemberType]
+                return ollama.Message(role='assistant', content=content)
+            sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
+                {'role': '<|User|>', 'content': prompt},
+                {'role': '<|Assistant|>', 'content': ''},
+            ])
+            visual_img = generate(
+                mmgpt,
+                vl_chat_processor,
+                prompt=sft_prompt+vl_chat_processor.image_start_tag,
+            )
+            return ollama.Message(
+                role='assistant',
+                images=[ollama.Image(value=value) for value in visual_img],
+            )
+        stream = Stream()
+        if stream.thinking:
+            label = '已深度思考'
+            with st.status('思考中...', expanded=True) as status:
+                with st.empty():
+                    while stream.thinking:
+                        if (
+                            (thoughts := st.write_stream(stream))
+                            and not cast(str, thoughts).isspace()
+                        ):
+                            try:
+                                timing = think[len(messages)+1]
+                            except KeyError:
+                                stream.close()
+                                stream = Stream()
+                            else:
+                                label += f' (用时 {timing} 秒)'
+                                break
+                        else:
+                            st.markdown('')
+                            break
+                    else:
+                        st.markdown('')
+                        thoughts = []
+                status.update(label=label, expanded=False, state='complete')
+        else:
+            thoughts = []
+        content = st.write_stream(stream)
+        assert isinstance(content, str)
+        if isinstance(thoughts, str):
+            content = f'<think>{thoughts}</think>{content}'
+        return ollama.Message(role='assistant', content=content)
+
+
 class Stream:
     def __init__(self):
         self.thinking = False
-        self._responses = responses = ollama.chat(model, messages, stream=True)  # pyright: ignore[reportUnknownMemberType]
+        self._responses = responses = ollama.chat(  # pyright: ignore[reportUnknownMemberType]
+            st.session_state.model, messages, stream=True)
         self._tic = time.monotonic()
         for r in responses:
             if chunk := r.message.content:
@@ -191,154 +269,101 @@ class Stream:
                 yield chunk
 
 
+def unload_ollama():
+    # https://github.com/ollama/ollama/blob/main/docs/api.md#unload-a-model-1
+    response = ollama.chat('deepseek-r1:8b', messages=[], keep_alive=0)  # pyright: ignore[reportUnknownMemberType]
+    if not (
+        response.done and response.done_reason == 'unload'
+        and response.model == 'deepseek-r1:8b'
+    ):
+        st.json(response.model_dump(mode='json'))
+        st.stop()
+
+
 messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
-if model := st.session_state.get('model', ''):
-    disabled = st.session_state.get('disabled', False)
-else:
-    disabled = True
-    with st.chat_message('assistant'):
-        st.markdown('选择一个模型:')
-        left, right = st.columns(2)
-        if left.button(
-            'DeepSeek R1 Distill Llama 8B (对话)',
-            type='primary',
-            use_container_width=True,
-        ):
-            st.session_state.model = 'deepseek-r1:8b'
-            cast('CachedFunc', models).clear()  # pyright: ignore[reportUnknownMemberType]
-            torch.cuda.empty_cache()
+if messages:
+    disabled = st.session_state.disabled
+    think: dict[int, int] = st.session_state.setdefault('think', {})
+    n = len(messages)
+    for i, m in enumerate(messages, 1):
+        if i == n and not disabled:
+            streamlit_scroll_to_top.scroll_to_here()  # pyright: ignore[reportArgumentType]
+        with st.chat_message(m.role):
+            if content := m.content:
+                if (
+                    (unsafe_allow_html := m.role == 'assistant')
+                    and content.startswith('<think>')
+                    and (j := content.find('</think>')) > 7
+                    and not (thoughts := content[7:j]).isspace()
+                ):
+                    with st.status('思考中...') as status:
+                        st.markdown(thoughts)
+                        status.update(
+                            label=f'已深度思考 (用时 {think[i]} 秒)',
+                            state='complete',
+                        )
+                    st.markdown(content[j+8 :])
+                else:
+                    st.markdown(content, unsafe_allow_html)
+            elif m.images:
+                st.image([image.value for image in m.images])
+            else:
+                assert False, 'unreachable'
+    if messages[-1].role == 'user':
+        if prompt := messages[-1].content:
+            messages.append(response(prompt))
+            st.session_state.disabled = False
             st.rerun()
-        janus_pro = right.button(
-            'Janus Pro 1B (图像生成)',
-            use_container_width=True,
-        )
-        if uploaded_file := st.file_uploader('Janus Pro 1B (图像识别)'):
+    if prompt := st.chat_input(
+        '给 DeepSeek 发送消息',
+        disabled=disabled,
+        on_submit=on_submit,
+    ):
+        streamlit_scroll_to_top.scroll_to_here()  # pyright: ignore[reportArgumentType]
+        st.chat_message('user').markdown(prompt)
+        messages.append(ollama.Message(role='user', content=prompt))
+        messages.append(response(prompt))
+        st.session_state.disabled = False
+        st.rerun()
+else:
+    tab1, tab2 = st.tabs(['对话/图像识别', '图像生成'])
+    prompt2 = tab1.chat_input(
+        '给 DeepSeek 发送消息',
+        accept_file=True,
+        on_submit=on_submit,
+    )
+    if prompt := tab2.chat_input(
+        '给 DeepSeek 发送消息',
+        on_submit=on_submit,
+    ):
+        unload_ollama()
+        st.session_state.model = 'janus-pro:1b'
+        messages.append(ollama.Message(role='user', content=prompt))
+        st.rerun()
+    elif prompt2:
+        if prompt2.files:
             try:
-                with PIL.Image.open(uploaded_file):
+                with PIL.Image.open(prompt2.files[0]):
                     pass
             except PIL.UnidentifiedImageError as e:
-                st.text(''.join(traceback.format_exception_only(e)))
+                tab1.exception(e.with_traceback(None))
                 st.stop()
+            unload_ollama()
+            st.session_state.model = 'janus-pro:1b'
             message = ollama.Message(
                 role='user',
-                images=[ollama.Image(value=uploaded_file.getvalue())],
+                images=[ollama.Image(value=prompt2.files[0].getvalue())],
             )
             messages.append(message)
-            janus_pro = True
-        if janus_pro:
-            st.session_state.model = 'janus-pro:1b'
-            # https://github.com/ollama/ollama/blob/main/docs/api.md#unload-a-model-1
-            response = ollama.chat('deepseek-r1:8b', messages=[], keep_alive=0)  # pyright: ignore[reportUnknownMemberType]
-            if not (
-                response.done and response.done_reason == 'unload'
-                and response.model == 'deepseek-r1:8b'
-            ):
-                st.json(response.model_dump(mode='json'))
-                st.stop()
+            if prompt2.text:
+                message = ollama.Message(role='user', content=prompt2.text)
+                messages.append(message)
+            else:
+                st.session_state.disabled = False
             st.rerun()
-
-think: dict[int, int] = st.session_state.setdefault('think', {})
-n = len(messages)
-for i, m in enumerate(messages, 1):
-    if i == n and not disabled:
-        streamlit_scroll_to_top.scroll_to_here()
-    with st.chat_message(m.role):
-        if content := m.content:
-            if (
-                (unsafe_allow_html := m.role == 'assistant')
-                and content.startswith('<think>')
-                and (j := content.find('</think>')) > 7
-                and not (thoughts := content[7:j]).isspace()
-            ):
-                with st.status('思考中...') as status:
-                    st.markdown(thoughts)
-                    status.update(
-                        label=f'已深度思考 (用时 {think[i]} 秒)',
-                        state='complete',
-                    )
-                st.markdown(content[j+8 :])
-            else:
-                st.markdown(content, unsafe_allow_html)
-        elif m.images:
-            st.image([image.value for image in m.images])
-        else:
-            assert False, 'unreachable'
-
-# https://discuss.streamlit.io/t/disable-chat-input-while-chat-bot-is-responding/70507
-if prompt := st.chat_input(
-    '给 DeepSeek 发送消息',
-    disabled=disabled,
-    on_submit=lambda: setattr(st.session_state, 'disabled', True),
-):
-    streamlit_scroll_to_top.scroll_to_here()
-    st.chat_message('user').markdown(prompt)
-    messages.append(ollama.Message(role='user', content=prompt))
-    with st.chat_message('assistant'):
-        if model == 'janus-pro:1b':
-            mmgpt, vl_chat_processor = models()
-            if images := messages[0].images:
-                inputs = prepare_inputs(images).to(mmgpt.device)  # pyright: ignore[reportUnknownMemberType]
-                tokenizer = vl_chat_processor.tokenizer
-                outputs = mmgpt.language_model.generate(  # pyright: ignore[reportUnknownMemberType]
-                    inputs_embeds=mmgpt.prepare_inputs_embeds(**inputs),  # pyright: ignore[reportUnknownMemberType]
-                    attention_mask=inputs.attention_mask,
-                    pad_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
-                    bos_token_id=tokenizer.bos_token_id,  # pyright: ignore[reportUnknownMemberType]
-                    eos_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
-                    max_new_tokens=512,
-                    do_sample=False,
-                    use_cache=True,
-                )
-                assert isinstance(outputs, torch.Tensor)
-                content = tokenizer.decode(outputs[0], skip_special_tokens=True)  # pyright: ignore[reportUnknownMemberType]
-                message = ollama.Message(role='assistant', content=content)
-            else:
-                sft_prompt = vl_chat_processor.apply_sft_template_for_multi_turn_prompts([
-                    {'role': '<|User|>', 'content': prompt},
-                    {'role': '<|Assistant|>', 'content': ''},
-                ])
-                visual_img = generate(
-                    mmgpt,
-                    vl_chat_processor,
-                    prompt=sft_prompt+vl_chat_processor.image_start_tag,
-                )
-                message = ollama.Message(
-                    role='assistant',
-                    images=[ollama.Image(value=value) for value in visual_img],
-                )
-        else:
-            stream = Stream()
-            if stream.thinking:
-                label = '已深度思考'
-                with st.status('思考中...', expanded=True) as status:
-                    with st.empty():
-                        while stream.thinking:
-                            if (
-                                (thoughts := st.write_stream(stream))
-                                and not cast(str, thoughts).isspace()
-                            ):
-                                try:
-                                    timing = think[len(messages)+1]
-                                except KeyError:
-                                    stream.close()
-                                    stream = Stream()
-                                else:
-                                    label += f' (用时 {timing} 秒)'
-                                    break
-                            else:
-                                st.markdown('')
-                                break
-                        else:
-                            st.markdown('')
-                            thoughts = []
-                    status.update(label=label, expanded=False, state='complete')
-            else:
-                thoughts = []
-            content = st.write_stream(stream)
-            assert isinstance(content, str)
-            if isinstance(thoughts, str):
-                content = f'<think>{thoughts}</think>{content}'
-            message = ollama.Message(role='assistant', content=content)
-    messages.append(message)
-    st.session_state.disabled = False
-    st.rerun()
+        elif prompt2.text:
+            cast('CachedFunc', models).clear()  # pyright: ignore[reportUnknownMemberType]
+            torch.cuda.empty_cache()
+            st.session_state.model = 'deepseek-r1:8b'
+            messages.append(ollama.Message(role='user', content=prompt2.text))
+            st.rerun()

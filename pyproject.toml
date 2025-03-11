@@ -1,6 +1,6 @@
 [project]
 name = 'deepseek-ui'
-requires-python = '>=3.8'
+requires-python = '>=3.9'
 
 [tool.basedpyright]
 strict = ['deepseek_ui.py', 'scripts/start_ollama_server.py']
@@ -20,7 +20,7 @@ cuda = '11'
 ollama-python = '*'
 pooch = '>=1.8.2'
 pytorch-cuda = '>=11.0.0,<13.0.0a0'
-streamlit = '>=1.40.1'
+streamlit = '>=1.43.0'
 
 # Taken from https://github.com/deepseek-ai/Janus/blob/main/pyproject.toml
 pytorch = '>=2.0.1'
