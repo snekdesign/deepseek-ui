@@ -10,9 +10,6 @@ typeCheckingMode = 'basic'
 channels = ['pytorch', 'nvidia', 'conda-forge']
 platforms = ['win-64']
 
-[tool.pixi.pypi-options]
-index-url = 'https://mirrors.cernet.edu.cn/pypi/web/simple'
-
 [tool.pixi.system-requirements]
 cuda = '11'
 
