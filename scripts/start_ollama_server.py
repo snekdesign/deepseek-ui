@@ -7,6 +7,7 @@ from typing import List
 import ollama
 import pooch  # pyright: ignore[reportMissingTypeStubs]
 import torch.version
+import tqdm
 
 
 def main():
@@ -42,6 +43,17 @@ async def _load_model() -> int:
         try:
             response = await client.chat('deepseek-r1:8b', messages=[])  # pyright: ignore[reportUnknownMemberType]
             break
+        except ollama.ResponseError as e:
+            if e.status_code != 404:
+                raise
+            with tqdm.tqdm(unit='B', unit_scale=True) as prog:
+                async for r in await client.pull('deepseek-r1:8b', stream=True):
+                    prog.set_description(r.status)
+                    if total := r.total:
+                        prog.total = total
+                    if n := r.completed:
+                        prog.n = 0
+                        prog.update(n)
         except Exception:
             await asyncio.sleep(1)
     if (
@@ -59,9 +71,17 @@ def _main(sock: socket.socket):
         known_hash=_sha256(),
         processor=pooch.Unzip([
             'ollama.exe',
-            f'lib/ollama/runners/cuda_v{major}_avx/ggml_cuda_v{major}.dll',
-            f'lib/ollama/runners/cuda_v{major}_avx/ollama_llama_server.exe',
+            f'lib/ollama/cuda_v{major}/ggml-cuda.dll',
+            'lib/ollama/ggml-base.dll',
+            'lib/ollama/ggml-cpu-haswell.dll',
         ]),
+        downloader=pooch.HTTPDownloader(
+            headers={
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) '
+                    'Gecko/20100101 Firefox/128.0',
+            },
+        ),
     )
     assert isinstance(files, list)
     ollama = _executable(files)  # pyright: ignore[reportUnknownArgumentType]
