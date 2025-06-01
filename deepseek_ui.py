@@ -1,10 +1,10 @@
-from collections.abc import Generator
+import collections
 from collections.abc import Sequence
 import contextlib
 import io
+import itertools
 import logging
 import time
-from typing import Any
 from typing import cast
 from typing import List
 from typing import TYPE_CHECKING
@@ -28,7 +28,11 @@ from transformers.modeling_outputs import BaseModelOutputWithPast  # pyright: ig
 
 _MODEL_PATH = 'data'
 
-st.set_page_config('DeepSeek')
+st.set_page_config(
+    page_title='DeepSeek',
+    page_icon='https://www.deepseek.com/favicon.ico',
+    layout='wide',
+)
 
 
 @torch.inference_mode()
@@ -190,83 +194,38 @@ def response(prompt: str):
                 role='assistant',
                 images=[ollama.Image(value=value) for value in visual_img],
             )
-        stream = Stream()
-        if stream.thinking:
-            label = '已深度思考'
-            with st.status('思考中...', expanded=True) as status:
-                with st.empty():
-                    while stream.thinking:
-                        if (
-                            (thoughts := st.write_stream(stream))
-                            and not cast(str, thoughts).isspace()
-                        ):
-                            try:
-                                timing = think[len(messages)+1]
-                            except KeyError:
-                                stream.close()
-                                stream = Stream()
-                            else:
-                                label += f' (用时 {timing} 秒)'
-                                break
-                        else:
-                            st.markdown('')
-                            break
-                    else:
-                        st.markdown('')
-                        thoughts = []
-                status.update(label=label, expanded=False, state='complete')
-        else:
-            thoughts = []
-        content = st.write_stream(stream)
-        assert isinstance(content, str)
-        if isinstance(thoughts, str):
-            content = f'<think>{thoughts}</think>{content}'
-        return ollama.Message(role='assistant', content=content)
-
-
-class Stream:
-    def __init__(self):
-        self.thinking = False
-        self._responses = responses = ollama.chat(  # pyright: ignore[reportUnknownMemberType]
-            st.session_state.model, messages, stream=True)
-        self._tic = time.monotonic()
-        for r in responses:
-            if chunk := r.message.content:
-                if chunk.startswith('<think>'):
-                    self.thinking = True
-                    self._initial = chunk[7:]
+        r1, r2 = itertools.tee(
+            ollama.chat(  # pyright: ignore[reportUnknownMemberType]
+                st.session_state.model,
+                messages,
+                stream=True,
+                think=True,
+            ),
+        )
+        tic = time.monotonic()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(st.empty())
+            with stack.push(st.status('思考中...', expanded=True)) as status:
+                if thinking := st.write_stream(
+                    itertools.takewhile(bool, (r.message.thinking for r in r1)),
+                ):
+                    toc = time.monotonic()
+                    label = f'已深度思考 (用时 {round(toc-tic)} 秒)'
+                    status.update(label=label, expanded=False, state='complete')
+                    stack.close()
                 else:
-                    self._initial = chunk
-                return
-        self._initial = None
-
-    def __iter__(self) -> Generator[str, Any, None]:
-        with contextlib.closing(self._iter()) as it:
-            if self.thinking:
-                for chunk in it:
-                    if '</think>' in chunk:
-                        toc = time.monotonic()
-                        think[len(messages) + 1] = round(toc - self._tic)
-                        self.thinking = False
-                        chunk, self._initial = chunk.split('</think>', 1)
-                        yield chunk
-                        return
-                    yield chunk
-            else:
-                yield from it
-        self._initial = None
-
-    def close(self):
-        if isinstance(self._responses, Generator):
-            self._responses.close()  # pyright: ignore[reportUnknownMemberType]
-
-    def _iter(self) -> Generator[str, Any, None]:
-        if self._initial is None:
-            return
-        yield self._initial
-        for r in self._responses:
-            if chunk := r.message.content:
-                yield chunk
+                    label = ''
+            content = st.write_stream(filter(None, (r.message.content for r in r2)))
+        collections.deque(r1, 0)
+        assert isinstance(content, str)
+        assert isinstance(thinking, str)
+        m = ollama.Message(
+            role='assistant',
+            content=content,
+            thinking=thinking or None,
+        )
+        labels[len(messages) + 1] = label
+        return m
 
 
 def unload_ollama():
@@ -281,30 +240,19 @@ def unload_ollama():
 
 
 messages: List[ollama.Message] = st.session_state.setdefault('messages', [])
+labels: dict[int, str] = st.session_state.setdefault('labels', {})
 if messages:
     disabled = st.session_state.disabled
-    think: dict[int, int] = st.session_state.setdefault('think', {})
     n = len(messages)
     for i, m in enumerate(messages, 1):
         if i == n and not disabled:
             streamlit_scroll_to_top.scroll_to_here()  # pyright: ignore[reportArgumentType]
         with st.chat_message(m.role):
             if content := m.content:
-                if (
-                    (unsafe_allow_html := m.role == 'assistant')
-                    and content.startswith('<think>')
-                    and (j := content.find('</think>')) > 7
-                    and not (thoughts := content[7:j]).isspace()
-                ):
-                    with st.status('思考中...') as status:
-                        st.markdown(thoughts)
-                        status.update(
-                            label=f'已深度思考 (用时 {think[i]} 秒)',
-                            state='complete',
-                        )
-                    st.markdown(content[j+8 :])
-                else:
-                    st.markdown(content, unsafe_allow_html)
+                if label := labels.get(i):
+                    with st.status(label):
+                        st.markdown(m.thinking)
+                st.markdown(m.content)
             elif m.images:
                 st.image([image.value for image in m.images])
             else:

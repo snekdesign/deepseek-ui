@@ -7,20 +7,19 @@ strict = ['deepseek_ui.py', 'scripts/start_ollama_server.py']
 typeCheckingMode = 'basic'
 
 [tool.pixi.project]
-channels = ['pytorch', 'nvidia', 'conda-forge']
+channels = ['conda-forge']
 platforms = ['win-64']
 
 [tool.pixi.system-requirements]
-cuda = '11'
+cuda = '12'
 
 [tool.pixi.dependencies]
-ollama-python = '*'
+ollama-python = '>=0.5.0'
 pooch = '>=1.8.2'
-pytorch-cuda = '>=11.0.0,<13.0.0a0'
+pytorch-gpu = '>=2.6.0'  # CVE-2025-32434
 streamlit = '>=1.43.0'
 
 # Taken from https://github.com/deepseek-ai/Janus/blob/main/pyproject.toml
-pytorch = '>=2.0.1'
 transformers = '>=4.38.2'
 timm = '>=0.9.16'
 accelerate = '*'
