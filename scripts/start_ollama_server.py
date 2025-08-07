@@ -6,7 +6,6 @@ from typing import List
 
 import ollama
 import pooch  # pyright: ignore[reportMissingTypeStubs]
-import torch.version
 import tqdm
 
 
@@ -18,15 +17,6 @@ def main():
             pass
         else:
             _main(sock)
-
-
-def _cuda_version():
-    if version := torch.version.cuda:
-        if version.startswith('12.'):
-            return 12
-        if version.startswith('11.'):
-            return 11
-    assert False, 'unreachable'
 
 
 def _executable(files: List[str]):
@@ -65,13 +55,12 @@ async def _load_model() -> int:
 
 
 def _main(sock: socket.socket):
-    major = _cuda_version()
     files = pooch.retrieve(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         'https://mirror.nyist.edu.cn/github-release/ollama/ollama/LatestRelease/ollama-windows-amd64.zip',
         known_hash=_sha256(),
         processor=pooch.Unzip([
             'ollama.exe',
-            f'lib/ollama/cuda_v{major}/ggml-cuda.dll',
+            'lib/ollama/ggml-cuda.dll',
             'lib/ollama/ggml-base.dll',
             'lib/ollama/ggml-cpu-haswell.dll',
         ]),
