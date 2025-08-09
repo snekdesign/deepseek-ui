@@ -62,7 +62,10 @@ def _main(sock: socket.socket):
             'ollama.exe',
             'lib/ollama/ggml-cuda.dll',
             'lib/ollama/ggml-base.dll',
+            'lib/ollama/ggml-cpu-alderlake.dll',
             'lib/ollama/ggml-cpu-haswell.dll',
+            'lib/ollama/ggml-cpu-icelake.dll',
+            'lib/ollama/ggml-cpu-skylakex.dll',
         ]),
         downloader=pooch.HTTPDownloader(
             headers={
