@@ -1,0 +1,64 @@
+#:schema https://pixi.prefix.dev/v0.71.0/schema/manifest/schema.json
+
+[workspace]
+channels = ['conda-forge']
+preview = ['pixi-build']
+requires-pixi = '>=0.71.0'
+
+[[workspace.platforms]]
+platform = 'win-64'
+archspec = 'skylake'
+cuda = '13'
+
+[workspace.build-variants]
+cxx_compiler = ['vs']
+cxx_compiler_version = ['2026.1']
+
+[package.build.backend]
+name = 'pixi-build-python'
+version = '>=0.6.0'
+channels = ['conda-forge']
+
+[package.build.config]
+compilers = ['cxx']
+ignore-pypi-mapping = true
+
+[package.build-dependencies]
+cmake = '>=4.0.0'
+ninja = '>=1.11.1'
+x86_64-microarch-level = '==3'
+
+[package.host-dependencies]
+nanobind = '>=3.0.1'
+python-gil = '3.14.*'
+scikit-build-core = '>=1.0.0'
+uv = '>=0.12.0'
+
+[package.run-dependencies]
+libcublas = '13.*'
+llvm-openmp = '*'
+ollama-python = '>=0.5.0'
+pooch = '>=1.9.0'
+tqdm = '>=4.68.3'
+
+[environments]
+default = ['python']
+cpp = ['cpp']
+
+[feature.python.dependencies]
+deepseek-ui = { path = '.' }
+
+[feature.python.tasks]
+serve = 'deepseek-ui'
+
+[feature.cpp.dependencies]
+cmake = '>=4.0.0'
+nanobind = '>=3.0.1'
+ninja = '>=1.11.1'
+python-gil = '3.14.*'
+vs_win-64 = '2026.1.*'
+
+[feature.cpp.tasks.configure]
+cmd = 'cmake -Bbuild -DCMAKE_BUILD_TYPE=Release -GNinja'
+inputs = ['CMakeLists.txt']
+outputs = ['build/compile_commands.json']

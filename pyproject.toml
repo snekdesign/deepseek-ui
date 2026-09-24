@@ -1,39 +1,28 @@
+[build-system]
+requires = [
+    'nanobind >=3.0.1',
+    'scikit-build-core >=1.0.0',
+]
+build-backend = 'scikit_build_core.build'
+
 [project]
 name = 'deepseek-ui'
-requires-python = '>=3.9'
+version = '0.2.0'
+requires-python = '>=3.14'
+license = 'MIT'
+dependencies = [
+    'ollama >=0.5.0',
+    'pooch >=1.9.0',
+    'tqdm >=4.68.3',
+]
+
+[project.scripts]
+deepseek-ui = 'deepseek_ui:main'
 
 [tool.basedpyright]
-strict = ['deepseek_ui.py', 'scripts/start_ollama_server.py']
-typeCheckingMode = 'basic'
+strict = ['src']
+typeCheckingMode = 'off'
 
-[tool.pixi.project]
-channels = ['conda-forge']
-platforms = ['win-64']
-
-[tool.pixi.system-requirements]
-cuda = '12'
-
-[tool.pixi.dependencies]
-ollama-python = '>=0.5.0'
-pooch = '>=1.8.2'
-pytorch-gpu = '>=2.6.0'  # CVE-2025-32434
-streamlit = '>=1.43.0'
-
-# Taken from https://github.com/deepseek-ai/Janus/blob/main/pyproject.toml
-transformers = '>=4.38.2'
-timm = '>=0.9.16'
-accelerate = '*'
-sentencepiece = '*'
-attrdict = '*'
-einops = '*'
-
-[tool.pixi.pypi-dependencies]
-janus = { git = 'ssh://git@github.com/deepseek-ai/Janus' }
-streamlit-scroll-to-top = '>=0.0.4'
-
-[tool.pixi.tasks.setup]
-cmd = 'python scripts/start_ollama_server.py'
-
-[tool.pixi.tasks.start]
-cmd = 'streamlit run deepseek_ui.py'
-depends-on = ['setup']
+[[tool.scikit-build.overrides]]
+if.env.CONDA_BUILD = true
+cmake.args = ['-GNinja']

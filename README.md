@@ -1,15 +1,10 @@
 # DeepSeek-UI
 ## Features
-- Image generation (Janus-Pro-1B)
-- Image recognition (Janus-Pro-1B)
-- Chat (DeepSeek-R1-Distill-Llama-8B)
+- Image recognition (MiMo-V2.6-Distill-Qwen-9B)
+- Chat (MiMo-V2.6-Distill-Qwen-9B)
 ## Requirements
-- NVIDIA GPU
-- Windows x86-64
-- git-lfs
-- pixi >=0.42.0
+See [pixi.toml](pixi.toml)
 ## Usage
-Clone this repo along with submodules, and then run:
 ```sh
 pixi r start
 ```
