@@ -102,8 +102,8 @@ auto OllamaHost() {
             if (u->Address.lpSockaddr->sa_family != AF_INET) continue;
             if (u->PrefixOrigin != IpPrefixOriginDhcp) continue;
 
-            auto sin = (SOCKADDR_IN *)u->Address.lpSockaddr;
-            TCHAR ip[INET_ADDRSTRLEN];
+            auto sin = reinterpret_cast<SOCKADDR_IN *>(u->Address.lpSockaddr);
+            TCHAR ip[16];
 
             if (!InetNtop(AF_INET, &sin->sin_addr, ip, 16)) [[unlikely]] {
                 std::free(addresses);
