@@ -12,6 +12,8 @@ import tqdm
 
 from . import _deepseek_ui
 
+_MODEL = 'maternion/mimo-v2.6:9b-thinking-q8_0'
+
 
 def main():
     with socket.socket() as sock:
@@ -24,7 +26,8 @@ def main():
 
 
 def _default_env():
-    os.environ.setdefault('OLLAMA_CONTEXT_LENGTH', '90000')
+    os.environ['OLLAMA_CONTEXT_LENGTH'] = '262144'
+    os.environ['OLLAMA_IGPU_ENABLE'] = '1'
 
     if host := os.getenv('OLLAMA_HOST'):
         host, port = host.split(':')
@@ -53,13 +56,13 @@ async def _load_model(ollama_exe: str) -> int:
     client = ollama.AsyncClient()
     while True:
         try:
-            response = await client.chat('maternion/mimo-v2.6:9b', messages=[])  # pyright: ignore[reportUnknownMemberType]
+            response = await client.chat(_MODEL, messages=[])  # pyright: ignore[reportUnknownMemberType]
             break
         except ollama.ResponseError as e:
             if e.status_code != 404:
                 raise
             with tqdm.tqdm(unit='B', unit_scale=True) as prog:
-                async for r in await client.pull('maternion/mimo-v2.6:9b', stream=True):
+                async for r in await client.pull(_MODEL, stream=True):
                     prog.set_description(r.status)
                     if total := r.total:
                         prog.total = total
@@ -69,7 +72,7 @@ async def _load_model(ollama_exe: str) -> int:
             await asyncio.sleep(1)
     if not (
         response.done and response.done_reason == 'load'
-        and response.model == 'maternion/mimo-v2.6:9b'
+        and response.model == _MODEL
     ):
         raise RuntimeError(response)
     process = await asyncio.create_subprocess_exec(
@@ -96,7 +99,7 @@ def _main(sock: socket.socket):
         known_hash=_sha256(),
         processor=pooch.Unzip([
             'ollama.exe',
-            'lib/ollama/cuda_v13/ggml-cuda.dll',
+            'lib/ollama/vulkan/ggml-vulkan.dll',
             'lib/ollama/ggml-base.dll',
             'lib/ollama/ggml-cpu-haswell.dll',
             'lib/ollama/ggml.dll',

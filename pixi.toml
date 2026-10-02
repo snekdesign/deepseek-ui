@@ -8,7 +8,6 @@ requires-pixi = '>=0.71.0'
 [[workspace.platforms]]
 platform = 'win-64'
 archspec = 'skylake'
-cuda = '13'
 
 [workspace.build-variants]
 cxx_compiler = ['vs']
@@ -35,7 +34,6 @@ scikit-build-core = '>=1.0.0'
 uv = '>=0.12.0'
 
 [package.run-dependencies]
-libcublas = '13.*'
 llvm-openmp = '*'
 ollama-python = '>=0.5.0'
 pooch = '>=1.9.0'
